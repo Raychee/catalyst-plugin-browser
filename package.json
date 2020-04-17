@@ -1,0 +1,23 @@
+{
+  "name": "@raychee/catalyst-plugin-browser",
+  "version": "0.0.1",
+  "description": "browser plugin for catalyst",
+  "main": "index.js",
+  "scripts": {
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Raychee/catalyst-plugin-browser.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Raychee/catalyst-plugin-browser/issues"
+  },
+  "homepage": "https://github.com/Raychee/catalyst-plugin-browser#readme",
+  "dependencies": {
+    "@raychee/utils": "^0.1.19",
+    "puppeteer-core": "^3.0.0",
+    "uuid": "^7.0.3"
+  }
+}
