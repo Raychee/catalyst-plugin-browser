@@ -21,7 +21,7 @@ class Browser {
         this.logger = logger;
         this.pluginLoader = pluginLoader;
         this.browser = undefined;
-        this.disconnected = true;
+        this.isRemote = false;
 
         this.connectOpts = connectOpts;
         this.identities = identities;
@@ -47,7 +47,8 @@ class Browser {
         this._launch = dedup(Browser.prototype._launch.bind(this), {key: null});
         this._close = dedup(Browser.prototype._close.bind(this), {key: null});
         this._connect = retry(puppeteer.connect.bind(puppeteer), 10, {
-            delay: 5000, delayRandomize: 0.5, retryDelayFactor: 1.3, catch: (e) => this.logger.warn('Browser connect failed: ', e)
+            delay: 5000, delayRandomize: 0.5, retryDelayFactor: 1.3, 
+            catch: (e) => this.logger.warn('Browser connect failed: ', e)
         });
 
     }
@@ -75,12 +76,7 @@ class Browser {
     }
 
     async launch(logger) {
-        if (
-            this.identities && !this.currentIdentity ||
-            this.proxies ||
-            !this.browser ||
-            this.disconnected
-        ) {
+        if (this.identities && !this.currentIdentity || this.proxies || !this.browser) {
             await this._launch(logger);
         }
     }
@@ -114,7 +110,7 @@ class Browser {
             }
         }
 
-        if (!this.browser || this.disconnected) {
+        if (!this.browser) {
 
             // how to remotely debug a running chrome:
             // 0. make sure to sleep somewhere in a desired state, so you can see it clearly later
@@ -135,18 +131,18 @@ class Browser {
                 if (blockAds) {
                     browserWSEndpoint += '&blockAds';
                 }
-                if (ignoreDefaultArgs !== undefined) {
+                if (ignoreDefaultArgs !== null) {
                     browserWSEndpoint += '&ignoreDefaultArgs=true';
                 }
                 connectOpts.browserWSEndpoint = browserWSEndpoint;
+                this.isRemote = true;
                 this.browser = await this._connect(connectOpts);
-                this.disconnected = false;
-                this.browser.on('disconnected', () => this.disconnected = true);
+                this.browser.on('disconnected', () => this.browser = undefined);
             } else if (executablePath) {
+                this.isRemote = false;
                 this.browser = await puppeteer.launch({
                     executablePath, args, ignoreDefaultArgs, ...connectOpts
                 });
-                this.disconnected = false;
             } else {
                 logger.crash('_browser_undefined_launch', 'Browser cannot launch without either browserWSEndpoint or executablePath specified');
             }
@@ -160,7 +156,7 @@ class Browser {
             pageErrorCount = 0, pageError = undefined;
 
         const handlePageError = async (error) => {
-            if (!this.browser || this.disconnected) {
+            if (!this.browser) {
                 return;
             }
             pageError = error;
@@ -387,7 +383,7 @@ class Browser {
                 if (this.currentIdentity) {
                     this.identities.touch(this.currentIdentity);
                 }
-                if (!this.browser || this.disconnected || pageError) {
+                if (!this.browser || pageError) {
                     if (pageError && pageErrorCount > this.maxRetryPageCrash) {
                         logger.fail('_browser_page_crashed', pageError);
                     }
@@ -465,7 +461,7 @@ class Browser {
                             proxy: this.currentProxy,
                             args, returned, error
                         });
-                        proxyInvalid = result.proxyInvalid !== undefined;
+                        proxyInvalid = result.proxyInvalid != null;
                     }
                     if (this.currentIdentity) {
                         result.identityInvalid = await this.validateIdentityFn.call(logger, page, method, {
@@ -476,7 +472,7 @@ class Browser {
                             proxy: this.currentProxy,
                             args, returned, error
                         });
-                        identityInvalid = result.identityInvalid !== undefined;
+                        identityInvalid = result.identityInvalid != null;
                     }
                     returns.push(returned || error);
                     if (error) {
@@ -604,14 +600,19 @@ class Browser {
     }
 
     async _close() {
-        if (!this.browser || this.disconnected) return;
+        if (!this.browser) return;
         const browser = this.browser;
         this.browser = undefined;
-        this.disconnected = true;
         try {
-            await browser.close();
+            if (this.isRemote) {
+                await browser.disconnect();
+            } else {
+                await browser.close();
+            }
         } catch (e) {
-            this.logger.warn('There is an error closing browser: ', e);
+            this.logger.warn(
+                'There is an error ', this.isRemote ? 'disconnecting' : 'closing', ' the browser: ', e
+            );
         }
     }
 
