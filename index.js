@@ -132,7 +132,7 @@ class Browser {
                 if (blockAds) {
                     browserWSEndpoint += '&blockAds';
                 }
-                if (ignoreDefaultArgs !== null) {
+                if (ignoreDefaultArgs) {
                     browserWSEndpoint += '&ignoreDefaultArgs=true';
                 }
                 connectOpts.browserWSEndpoint = browserWSEndpoint;
