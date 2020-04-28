@@ -8,7 +8,8 @@ class Browser {
 
     constructor(logger, pluginLoader, connectOpts = {}, {
         identities, proxies, hookedPageMethods = [
-            'goto', 'evaluate', 'waitFor', 'waitForResponse', 'waitForNavigation',
+            'goto', 'evaluate', 'evaluateOnNewDocument', 
+            'waitFor', 'waitForResponse', 'waitForNavigation',
             'evaluateClick', 'scrollToButtom', 'type',
         ],
         maxRetryIdentities = 10, maxRetryPageCrash = 1,
@@ -645,7 +646,8 @@ module.exports = {
         {
             connectOpts = {}, identities, proxies,
             hookedPageMethods = [
-                'goto', 'evaluate', 'waitFor', 'waitForResponse', 'waitForNavigation',
+                'goto', 'evaluate', 'evaluateOnNewDocument',
+                'waitFor', 'waitForResponse', 'waitForNavigation',
                 'evaluateClick', 'scrollToButtom', 'type',
             ],
             maxRetryIdentities = 10, maxRetryPageCrash = 1,
