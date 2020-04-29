@@ -380,10 +380,10 @@ class Browser {
         const invokeAsyncMethods = async (...invokes) => {
             let trial = 0;
             while (true) {
-                if (this.currentProxy) {
+                if (this.currentProxy && this.proxies) {
                     this.proxies.touch(this.currentProxy);
                 }
-                if (this.currentIdentity) {
+                if (this.currentIdentity && this.identities) {
                     this.identities.touch(this.currentIdentity);
                 }
                 if (!this.browser || pageError) {
@@ -554,7 +554,7 @@ class Browser {
                 if (lastError) {
                     logger.fail('_browser_page_failed', lastError);
                 }
-                if (this.currentIdentity) {
+                if (this.currentIdentity && this.identities) {
                     this.identities.renew(this.currentIdentity);
                 }
                 if (!loadingPageState) {
