@@ -221,7 +221,9 @@ class Browser {
             }
             if (this.currentIdentity) {
                 await this.loadIdentityFn.call(logger, newPage, this.currentIdentity.data);
-                this.identities.unlock(this.currentIdentity);
+                if (this.identities){
+                    this.identities.unlock(this.currentIdentity);
+                }
             }
 
             page = newPage;
