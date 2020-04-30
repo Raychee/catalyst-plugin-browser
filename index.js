@@ -697,6 +697,7 @@ module.exports = {
     },
 
     async destroy(browser) {
+        browser._clearCurrentIdentity();
         await browser._close();
     }
 };
