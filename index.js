@@ -8,7 +8,7 @@ class Browser {
 
     constructor(logger, pluginLoader, connectOpts = {}, {
         identities, proxies, hookedPageMethods = [
-            'goto', 'evaluate', 'evaluateOnNewDocument', 
+            'goto', 'evaluate', 'evaluateOnNewDocument',
             'waitFor', 'waitForResponse', 'waitForNavigation',
             'evaluateClick', 'scrollToButtom', 'type',
         ],
@@ -16,7 +16,7 @@ class Browser {
         switchIdentityOnInvalidProxy = false, switchProxyOnInvalidIdentity = true,
         createIdentityFn, loadIdentityFn, validateIdentityFn, validateProxyFn,
         loadPageStateFn, processReturnedFn,
-        defaultIdentityId, lockIdentityUntilLoaded = false,
+        defaultIdentityId, lockIdentityUntilLoaded = false, lockIdentityInUse = false,
         debug = false,
     }) {
         this.logger = logger;
@@ -40,6 +40,7 @@ class Browser {
         if (processReturnedFn) this.processReturnedFn = processReturnedFn;
         this.defaultIdentityId = defaultIdentityId;
         this.lockIdentityUntilLoaded = lockIdentityUntilLoaded;
+        this.lockIdentityInUse = lockIdentityInUse;
         this.debug = debug;
 
         this.currentIdentity = undefined;
@@ -48,7 +49,7 @@ class Browser {
         this._launch = dedup(Browser.prototype._launch.bind(this), {key: null});
         this._close = dedup(Browser.prototype._close.bind(this), {key: null});
         this._connect = retry(puppeteer.connect.bind(puppeteer), 10, {
-            delay: 5000, delayRandomize: 0.5, retryDelayFactor: 1.3, 
+            delay: 5000, delayRandomize: 0.5, retryDelayFactor: 1.3,
             catch: (e) => this.logger.warn('Browser connect failed: ', e)
         });
 
@@ -72,6 +73,7 @@ class Browser {
             processReturnedFn: this.processReturnedFn,
             defaultIdentityId: this.defaultIdentityId,
             lockIdentityUntilLoaded: this.lockIdentityUntilLoaded,
+            lockIdentityInUse: this.lockIdentityInUse,
             ...override
         });
     }
@@ -86,7 +88,7 @@ class Browser {
         logger = logger || this.logger;
         if (this.identities && !this.currentIdentity) {
             this.currentIdentity = await this.identities.get({
-                lock: this.lockIdentityUntilLoaded,
+                lock: this.lockIdentityUntilLoaded || this.lockIdentityInUse,
                 ifAbsent: this.createIdentityFn && (async () => {
                     const _id = uuid4();
                     const {instance, destroy} = await this._newBrowser(
@@ -149,6 +151,15 @@ class Browser {
             }
         }
     }
+    
+    _clearCurrentIdentity() {
+        if (this.currentIdentity) {
+            if (this.identities && this.lockIdentityInUse) {
+                this.identities.unlock(this.currentIdentity);
+            }
+            this.currentIdentity = undefined;
+        }
+    }
 
     async newPage(logger, {incognito = true, filterRequests} = {}) {
         logger = logger || this.logger;
@@ -199,7 +210,7 @@ class Browser {
                     if (filterRequests instanceof RegExp) {
                         filter = (req) => filterRequests.test(req.url());
                     } else if (Array.isArray(filterRequests)) {
-                        filter = (req) => req.isNavigationRequest() || filterRequests.indexOf(req.resourceType()) >= 0;
+                        filter = (req) => req.isNavigationRequest() || filterRequests.includes(req.resourceType());
                     } else if (typeof filterRequests === "function") {
                         filter = filterRequests;
                     }
@@ -221,7 +232,7 @@ class Browser {
             }
             if (this.currentIdentity) {
                 await this.loadIdentityFn.call(logger, newPage, this.currentIdentity.data);
-                if (this.identities){
+                if (this.identities && this.lockIdentityUntilLoaded && !this.lockIdentityInUse) {
                     this.identities.unlock(this.currentIdentity);
                 }
             }
@@ -443,7 +454,11 @@ class Browser {
                     returns = [], lastError = undefined;
                 for (const result of results) {
                     const {method, args, returned, error} = result;
-                    if (pageError || error && (error.message === 'Page crashed!' || error.message.startsWith('Protocol error'))) {
+                    if (pageError || error && (
+                        error.message === 'Page crashed!' || 
+                        error.message.includes('Target closed') ||
+                        error.message.includes('Session closed')
+                    )) {
                         pageError = pageError || error;
                         await handlePageError(pageError);
                         if (pageErrorCount > this.maxRetryPageCrash || loadingPageState) {
@@ -492,7 +507,7 @@ class Browser {
                         if (!proxyInvalid && !identityInvalid) {
                             continue;
                         }
-                        if (logMessages.length  > 0) {
+                        if (logMessages.length > 0) {
                             logMessages.push('; ');
                         }
                         const logArgs = [];
@@ -535,11 +550,11 @@ class Browser {
                     if (proxyInvalid && this.proxies) {
                         this.proxies.deprecate(this.currentProxy);
                         this.currentProxy = undefined;
-                        if (this.switchIdentityOnInvalidProxy) this.currentIdentity = undefined;
+                        if (this.switchIdentityOnInvalidProxy) this._clearCurrentIdentity();
                     }
                     if (identityInvalid && this.identities) {
                         this.identities.deprecate(this.currentIdentity);
-                        this.currentIdentity = undefined;
+                        this._clearCurrentIdentity();
                         if (this.switchProxyOnInvalidIdentity) this.currentProxy = undefined;
                     }
 
@@ -628,7 +643,8 @@ class Browser {
         }
     }
 
-    validateIdentityFn() {}
+    validateIdentityFn() {
+    }
 
     validateProxyFn(page, method, {returned, error}) {
         if (error) return error;
@@ -637,7 +653,8 @@ class Browser {
         }
     }
 
-    processReturnedFn() {}
+    processReturnedFn() {
+    }
 
 }
 
@@ -654,9 +671,9 @@ module.exports = {
             ],
             maxRetryIdentities = 10, maxRetryPageCrash = 1,
             switchIdentityOnInvalidProxy = false, switchProxyOnInvalidIdentity = true,
-            createIdentityFn, validateIdentityFn, loadIdentityFn, validateProxyFn,
+            createIdentityFn, loadIdentityFn, validateIdentityFn, validateProxyFn,
             loadPageStateFn, processReturnedFn,
-            defaultIdentityId, lockIdentityUntilLoaded,
+            defaultIdentityId, lockIdentityUntilLoaded = false, lockIdentityInUse = false,
             debug = false,
         },
         {pluginLoader}
@@ -675,7 +692,7 @@ module.exports = {
             switchIdentityOnInvalidProxy, switchProxyOnInvalidIdentity,
             createIdentityFn, loadIdentityFn, validateIdentityFn, validateProxyFn,
             loadPageStateFn, processReturnedFn,
-            defaultIdentityId, lockIdentityUntilLoaded,
+            defaultIdentityId, lockIdentityUntilLoaded, lockIdentityInUse,
         });
     },
 

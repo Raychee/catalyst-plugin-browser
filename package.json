@@ -1,6 +1,6 @@
 {
   "name": "@raychee/catalyst-plugin-browser",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "browser plugin for catalyst",
   "main": "index.js",
   "scripts": {},
