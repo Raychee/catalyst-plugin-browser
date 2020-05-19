@@ -1,6 +1,6 @@
 {
   "name": "@raychee/catalyst-plugin-browser",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "browser plugin for catalyst",
   "main": "index.js",
   "scripts": {},
@@ -15,7 +15,7 @@
   },
   "homepage": "https://github.com/Raychee/catalyst-plugin-browser#readme",
   "dependencies": {
-    "@raychee/utils": "^0.2.3",
+    "@raychee/utils": "^0.2.4",
     "puppeteer-core": "^3.0.0",
     "uuid": "^7.0.3"
   }
