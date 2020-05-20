@@ -1,4 +1,10 @@
-const puppeteer = require('puppeteer-core');
+const puppeteer = (() => {
+    try {
+        return require('puppeteer-core');
+    } catch {
+        return require('puppeteer');
+    }
+})();
 const {v4: uuid4} = require('uuid');
 
 const {dedup, retry} = require('@raychee/utils');
