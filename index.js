@@ -97,11 +97,11 @@ class Browser {
                 lock: this.lockIdentityUntilLoaded || this.lockIdentityInUse,
                 ifAbsent: this.createIdentityFn && (async () => {
                     const _id = uuid4();
-                    const {instance, destroy} = await this._newBrowser(
+                    const {bound, destroy} = await this._newBrowser(
                         {identities: undefined, defaultIdentityId: _id}
                     );
                     try {
-                        const {id, ...data} = await this.createIdentityFn.call(logger, instance);
+                        const {id, ...data} = await this.createIdentityFn.call(logger, bound);
                         const identity = {id: id || _id, data};
                         logger.info('New identity for browser is created: ', identity.id, ' ', identity.data);
                         return identity;
@@ -686,11 +686,11 @@ module.exports = {
     ) {
         if (identities && typeof identities === "object" && identities.constructor === Object) {
             const plugin = await pluginLoader.get({type: 'identities', ...identities});
-            identities = plugin.instance;
+            identities = plugin.bound;
         }
         if (proxies && typeof proxies === "object" && proxies.constructor === Object) {
             const plugin = await pluginLoader.get({type: 'proxies', ...proxies});
-            proxies = plugin.instance;
+            proxies = plugin.bound;
         }
         return new Browser(this, pluginLoader, connectOpts, {
             identities, proxies, hookedPageMethods,
