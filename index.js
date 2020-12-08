@@ -16,11 +16,11 @@ class Browser {
         identities, proxies, hookedPageMethods = [
             'goto', 'evaluate', 'evaluateOnNewDocument',
             'waitFor', 'waitForResponse', 'waitForNavigation',
-            'evaluateClick', 'scrollToButtom', 'type',
+            'evaluateClick', 'scrollToBottom', 'type',
         ],
         maxRetryIdentities = 10, maxRetryPageCrash = 1,
         switchIdentityOnInvalidProxy = false, switchProxyOnInvalidIdentity = true,
-        createIdentityFn, loadIdentityFn, validateIdentityFn, validateProxyFn,
+        createIdentityFn, createIdentityError, loadIdentityFn, validateIdentityFn, validateProxyFn,
         loadPageStateFn, processReturnedFn,
         defaultIdentityId, lockIdentityUntilLoaded = false, lockIdentityInUse = false,
         debug = false,
@@ -39,6 +39,7 @@ class Browser {
         this.switchIdentityOnInvalidProxy = switchIdentityOnInvalidProxy;
         this.switchProxyOnInvalidIdentity = switchProxyOnInvalidIdentity;
         this.createIdentityFn = createIdentityFn;
+        this.createIdentityError = createIdentityError;
         if (loadIdentityFn) this.loadIdentityFn = loadIdentityFn;
         if (validateIdentityFn) this.validateIdentityFn = validateIdentityFn;
         if (validateProxyFn) this.validateProxyFn = validateProxyFn;
@@ -60,30 +61,7 @@ class Browser {
         });
 
     }
-
-    async _newBrowser(override = {}) {
-        return await this.pluginLoader.get({
-            type: 'browser',
-            connectOpts: this.connectOpts,
-            identities: this.identities,
-            proxies: this.proxies,
-            hookedPageMethods: this.hookedPageMethods,
-            maxRetryIdentities: this.maxRetryIdentities,
-            switchIdentityOnInvalidProxy: this.switchIdentityOnInvalidProxy,
-            switchProxyOnInvalidIdentity: this.switchProxyOnInvalidIdentity,
-            createIdentityFn: this.createIdentityFn,
-            loadIdentityFn: this.loadIdentityFn,
-            validateIdentityFn: this.validateIdentityFn,
-            validateProxyFn: this.validateProxyFn,
-            loadPageStateFn: this.loadPageStateFn,
-            processReturnedFn: this.processReturnedFn,
-            defaultIdentityId: this.defaultIdentityId,
-            lockIdentityUntilLoaded: this.lockIdentityUntilLoaded,
-            lockIdentityInUse: this.lockIdentityInUse,
-            ...override
-        });
-    }
-
+    
     async launch(logger) {
         if (this.identities && !this.currentIdentity || this.proxies || !this.browser) {
             await this._launch(logger);
@@ -95,21 +73,6 @@ class Browser {
         if (this.identities && !this.currentIdentity) {
             this.currentIdentity = await this.identities.get({
                 lock: this.lockIdentityUntilLoaded || this.lockIdentityInUse,
-                ifAbsent: this.createIdentityFn && (async () => {
-                    const _id = uuid4();
-                    const {bound, destroy} = await this._newBrowser(
-                        {identities: undefined, defaultIdentityId: _id}
-                    );
-                    try {
-                        const {id, ...data} = await this.createIdentityFn.call(logger, bound);
-                        const identity = {id: id || _id, data};
-                        logger.info('New identity for browser is created: ', identity.id, ' ', identity.data);
-                        return identity;
-                    } finally {
-                        await destroy();
-                    }
-                }),
-                waitForStore: !this.createIdentityFn
             });
         }
         if (this.proxies) {
@@ -310,7 +273,7 @@ class Browser {
 
             page.waitForResponseWhileScrollToBottom = async (urlsOrPredicates, {options, state} = {}) => {
                 const invokes = urlsOrPredicates.map(u => ({method: 'waitForResponse', args: [u, options]}));
-                invokes.push({method: 'scrollToButtom', args: [options]});
+                invokes.push({method: 'scrollToBottom', args: [options]});
                 const results = await invokeAsyncMethods(...invokes);
                 if (state) {
                     page.updateState(state);
@@ -325,7 +288,7 @@ class Browser {
                 }, selector);
             };
 
-            page.scrollToButtom = async (options) => {
+            page.scrollToBottom = async (options) => {
                 return page.evaluate(async ({interval = 100, distance = 100} = {}) => {
                     await new Promise((resolve) => {
                         let totalHeight = 0;
@@ -673,17 +636,40 @@ module.exports = {
             hookedPageMethods = [
                 'goto', 'evaluate', 'evaluateOnNewDocument',
                 'waitFor', 'waitForResponse', 'waitForNavigation',
-                'evaluateClick', 'scrollToButtom', 'type',
+                'evaluateClick', 'scrollToBottom', 'type',
             ],
             maxRetryIdentities = 10, maxRetryPageCrash = 1,
             switchIdentityOnInvalidProxy = false, switchProxyOnInvalidIdentity = true,
-            createIdentityFn, loadIdentityFn, validateIdentityFn, validateProxyFn,
+            createIdentityFn, createIdentityError, loadIdentityFn, validateIdentityFn, validateProxyFn,
             loadPageStateFn, processReturnedFn,
             defaultIdentityId, lockIdentityUntilLoaded = false, lockIdentityInUse = false,
             debug = false,
         },
         {pluginLoader}
     ) {
+        if (createIdentityFn && (!identities || identities && typeof identities === "object" && identities.constructor === Object)) {
+            identities = {
+                async createIdentityFn() {
+                    const _id = uuid4();
+                    const {bound, destroy} = await pluginLoader.get({
+                        type: 'browser',
+                        connectOpts, proxies, hookedPageMethods, maxRetryIdentities,
+                        switchIdentityOnInvalidProxy, switchProxyOnInvalidIdentity,
+                        createIdentityFn, createIdentityError, loadIdentityFn, validateIdentityFn, validateProxyFn,
+                        loadPageStateFn, processReturnedFn,
+                        defaultIdentityId: _id, lockIdentityUntilLoaded, lockIdentityInUse,
+                    });
+                    try {
+                        const {id, ...data} = await createIdentityFn.call(this, bound);
+                        return {id: id || _id, data};
+                    } finally {
+                        await destroy();
+                    }
+                },
+                createIdentityError,
+                ...identities
+            };
+        }
         if (identities && typeof identities === "object" && identities.constructor === Object) {
             const plugin = await pluginLoader.get({type: 'identities', ...identities});
             identities = plugin.bound;
@@ -696,7 +682,7 @@ module.exports = {
             identities, proxies, hookedPageMethods,
             maxRetryIdentities, maxRetryPageCrash,
             switchIdentityOnInvalidProxy, switchProxyOnInvalidIdentity,
-            createIdentityFn, loadIdentityFn, validateIdentityFn, validateProxyFn,
+            createIdentityFn, createIdentityError, loadIdentityFn, validateIdentityFn, validateProxyFn,
             loadPageStateFn, processReturnedFn,
             defaultIdentityId, lockIdentityUntilLoaded, lockIdentityInUse,
         });
