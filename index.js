@@ -12,7 +12,7 @@ const {dedup, retry} = require('@raychee/utils');
 
 class Browser {
 
-    constructor(logger, pluginLoader, connectOpts = {}, {
+    constructor(logger, connectOpts = {}, {
         identities, proxies, hookedPageMethods = [
             'goto', 'evaluate', 'evaluateOnNewDocument',
             'waitFor', 'waitForResponse', 'waitForNavigation',
@@ -26,7 +26,6 @@ class Browser {
         debug = false,
     }) {
         this.logger = logger;
-        this.pluginLoader = pluginLoader;
         this.browser = undefined;
         this.isRemote = false;
 
@@ -71,14 +70,14 @@ class Browser {
     async _launch(logger) {
         logger = logger || this.logger;
         if (this.identities && !this.currentIdentity) {
-            this.currentIdentity = await this.identities.get({
+            this.currentIdentity = await this.identities.bound.get({
                 lock: this.lockIdentityUntilLoaded || this.lockIdentityInUse,
             });
         }
         if (this.proxies) {
             const identityId = this.currentIdentity && this.currentIdentity.id || this.defaultIdentityId;
             if (!this.currentProxy || identityId) {
-                this.currentProxy = await this.proxies.get(identityId);
+                this.currentProxy = await this.proxies.bound.get(identityId);
             }
         }
 
@@ -124,7 +123,7 @@ class Browser {
     _clearCurrentIdentity() {
         if (this.currentIdentity) {
             if (this.identities && this.lockIdentityInUse) {
-                this.identities.unlock(this.currentIdentity);
+                this.identities.bound.unlock(this.currentIdentity);
             }
             this.currentIdentity = undefined;
         }
@@ -202,7 +201,7 @@ class Browser {
             if (this.currentIdentity) {
                 await this.loadIdentityFn.call(logger, newPage, this.currentIdentity.data);
                 if (this.identities && this.lockIdentityUntilLoaded && !this.lockIdentityInUse) {
-                    this.identities.unlock(this.currentIdentity);
+                    this.identities.bound.unlock(this.currentIdentity);
                 }
             }
 
@@ -361,10 +360,10 @@ class Browser {
             let trial = 0;
             while (true) {
                 if (this.currentProxy && this.proxies) {
-                    this.proxies.touch(this.currentProxy);
+                    this.proxies.bound.touch(this.currentProxy);
                 }
                 if (this.currentIdentity && this.identities) {
-                    this.identities.touch(this.currentIdentity);
+                    this.identities.bound.touch(this.currentIdentity);
                 }
                 if (!this.browser || pageError) {
                     if (pageError && pageErrorCount > this.maxRetryPageCrash) {
@@ -407,10 +406,10 @@ class Browser {
                 results = await Promise.all(results.map(async result => {
                     const {method, args, returned, error} = result;
                     const processed = await this.processReturnedFn.call(logger, makeProxy(), method, {
-                        identities: this.identities,
+                        identities: this.identities && this.identities.bound,
                         identityId: this.currentIdentity && this.currentIdentity.id,
                         identity: this.currentIdentity && this.currentIdentity.data,
-                        proxies: this.proxies,
+                        proxies: this.proxies && this.proxies.bound,
                         proxy: this.currentProxy,
                         args, returned, error
                     });
@@ -441,10 +440,10 @@ class Browser {
                     }
                     if (this.currentProxy) {
                         result.proxyInvalid = await this.validateProxyFn.call(logger, page, method, {
-                            identities: this.identities,
+                            identities: this.identities && this.identities.bound,
                             identityId: this.currentIdentity && this.currentIdentity.id,
                             identity: this.currentIdentity && this.currentIdentity.data,
-                            proxies: this.proxies,
+                            proxies: this.proxies && this.proxies.bound,
                             proxy: this.currentProxy,
                             args, returned, error
                         });
@@ -452,10 +451,10 @@ class Browser {
                     }
                     if (this.currentIdentity) {
                         result.identityInvalid = await this.validateIdentityFn.call(logger, page, method, {
-                            identities: this.identities,
+                            identities: this.identities && this.identities.bound,
                             identityId: this.currentIdentity.id,
                             identity: this.currentIdentity.data,
-                            proxies: this.proxies,
+                            proxies: this.proxies && this.proxies.bound,
                             proxy: this.currentProxy,
                             args, returned, error
                         });
@@ -517,12 +516,12 @@ class Browser {
                     }
 
                     if (proxyInvalid && this.proxies) {
-                        this.proxies.deprecate(this.currentProxy);
+                        this.proxies.bound.deprecate(this.currentProxy);
                         this.currentProxy = undefined;
                         if (this.switchIdentityOnInvalidProxy) this._clearCurrentIdentity();
                     }
                     if (identityInvalid && this.identities) {
-                        this.identities.deprecate(this.currentIdentity);
+                        this.identities.bound.deprecate(this.currentIdentity);
                         this._clearCurrentIdentity();
                         if (this.switchProxyOnInvalidIdentity) this.currentProxy = undefined;
                     }
@@ -539,7 +538,7 @@ class Browser {
                     logger.fail('_browser_page_failed', lastError);
                 }
                 if (this.currentIdentity && this.identities) {
-                    this.identities.renew(this.currentIdentity);
+                    this.identities.bound.renew(this.currentIdentity);
                 }
                 if (!loadingPageState) {
                     const operation = invokes.filter(i => i.method !== 'waitForResponse');
@@ -602,6 +601,26 @@ class Browser {
             );
         }
     }
+    
+    async _unload(job) {
+        if (this.identities) {
+            await this.identities.unload(job);
+        }
+        if (this.proxies) {
+            await this.proxies.unload(job);
+        }
+    }
+    
+    async _destroy() {
+        this._clearCurrentIdentity();
+        await this._close();
+        if (this.identities) {
+            await this.identities.destroy();
+        }
+        if (this.proxies) {
+            await this.proxies.destroy();
+        }
+    }
 
     /**
      * @param cookies An array of cookie objects, see https://pptr.dev/#?product=Puppeteer&version=v1.20.0&show=api-pagecookiesurls
@@ -632,7 +651,7 @@ module.exports = {
     type: 'browser',
     async create(
         {
-            connectOpts = {}, identities, proxies,
+            connectOpts = {}, identities: identitiesOptions, proxies: proxiesOptions,
             hookedPageMethods = [
                 'goto', 'evaluate', 'evaluateOnNewDocument',
                 'waitFor', 'waitForResponse', 'waitForNavigation',
@@ -647,13 +666,13 @@ module.exports = {
         },
         {pluginLoader}
     ) {
-        if (createIdentityFn && (!identities || identities && typeof identities === "object" && identities.constructor === Object)) {
-            identities = {
+        if (createIdentityFn) {
+            identitiesOptions = {
                 async createIdentityFn() {
                     const _id = uuid4();
                     const {bound, destroy} = await pluginLoader.get({
                         type: 'browser',
-                        connectOpts, proxies, hookedPageMethods, maxRetryIdentities,
+                        connectOpts, proxies: proxiesOptions, hookedPageMethods, maxRetryIdentities,
                         switchIdentityOnInvalidProxy, switchProxyOnInvalidIdentity,
                         createIdentityFn, createIdentityError, loadIdentityFn, validateIdentityFn, validateProxyFn,
                         loadPageStateFn, processReturnedFn,
@@ -667,18 +686,12 @@ module.exports = {
                     }
                 },
                 createIdentityError,
-                ...identities
+                ...identitiesOptions
             };
         }
-        if (identities && typeof identities === "object" && identities.constructor === Object) {
-            const plugin = await pluginLoader.get({type: 'identities', ...identities});
-            identities = plugin.bound;
-        }
-        if (proxies && typeof proxies === "object" && proxies.constructor === Object) {
-            const plugin = await pluginLoader.get({type: 'proxies', ...proxies});
-            proxies = plugin.bound;
-        }
-        return new Browser(this, pluginLoader, connectOpts, {
+        const identities = identitiesOptions && await pluginLoader.get({type: 'identities', ...identitiesOptions});
+        const proxies = proxiesOptions && await pluginLoader.get({type: 'proxies', ...proxiesOptions});
+        return new Browser(this, connectOpts, {
             identities, proxies, hookedPageMethods,
             maxRetryIdentities, maxRetryPageCrash,
             switchIdentityOnInvalidProxy, switchProxyOnInvalidIdentity,
@@ -687,9 +700,10 @@ module.exports = {
             defaultIdentityId, lockIdentityUntilLoaded, lockIdentityInUse,
         });
     },
-
+    async unload(browser, job) {
+        await browser._unload(job); 
+    },
     async destroy(browser) {
-        browser._clearCurrentIdentity();
-        await browser._close();
+        await browser._destroy();
     }
 };
