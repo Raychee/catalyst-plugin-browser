@@ -70,14 +70,16 @@ class Browser {
     async _launch(logger) {
         logger = logger || this.logger;
         if (this.identities && !this.currentIdentity) {
-            this.currentIdentity = await this.identities.bound.get({
+            this.currentIdentity = await this.identities.instance.get(logger, {
                 lock: this.lockIdentityUntilLoaded || this.lockIdentityInUse,
             });
         }
         if (this.proxies) {
-            const identityId = this.currentIdentity && this.currentIdentity.id || this.defaultIdentityId;
-            if (!this.currentProxy || identityId) {
-                this.currentProxy = await this.proxies.bound.get(identityId);
+            const identity = {id: this.defaultIdentityId, ...this.currentIdentity};
+            if (!this.currentProxy || identity.id) {
+                this.currentProxy = await this.proxies.instance.get(
+                    logger, identity, this.identities && this.identities.instance.getProxiesOptions()
+                );
             }
         }
 
@@ -115,15 +117,19 @@ class Browser {
                     executablePath, args, ignoreDefaultArgs, ...connectOpts
                 });
             } else {
-                logger.crash('_browser_undefined_launch', 'Browser cannot launch without either browserWSEndpoint or executablePath specified');
+                logger.crash('plugin_browser_bad_launch_options', 'Browser cannot launch without either browserWSEndpoint or executablePath specified');
             }
         }
     }
     
-    _clearCurrentIdentity() {
+    _clearCurrentIdentity(logger) {
         if (this.currentIdentity) {
             if (this.identities && this.lockIdentityInUse) {
-                this.identities.bound.unlock(this.currentIdentity);
+                if (logger) {
+                    this.identities.instance.unlock(logger, this.currentIdentity);
+                } else {
+                    this.identities.bound.unlock(this.currentIdentity);
+                }
             }
             this.currentIdentity = undefined;
         }
@@ -201,7 +207,7 @@ class Browser {
             if (this.currentIdentity) {
                 await this.loadIdentityFn.call(logger, newPage, this.currentIdentity.data);
                 if (this.identities && this.lockIdentityUntilLoaded && !this.lockIdentityInUse) {
-                    this.identities.bound.unlock(this.currentIdentity);
+                    this.currentIdentity = this.identities.instance.unlock(logger, this.currentIdentity);
                 }
             }
 
@@ -323,7 +329,7 @@ class Browser {
                     break;
                 } catch (e) {
                     let throwError = true;
-                    if (e.name === 'JobRuntime') {
+                    if (e instanceof Error && e.name === 'JobRuntime') {
                         if (trial < this.maxRetryIdentities) {
                             logger.warn(
                                 'Page re-tries loading state (', trial, '/', this.maxRetryIdentities, ').',
@@ -360,14 +366,14 @@ class Browser {
             let trial = 0;
             while (true) {
                 if (this.currentProxy && this.proxies) {
-                    this.proxies.bound.touch(this.currentProxy);
+                    this.proxies.instance.touch(logger, this.currentProxy);
                 }
                 if (this.currentIdentity && this.identities) {
-                    this.identities.bound.touch(this.currentIdentity);
+                    this.currentIdentity = this.identities.instance.touch(logger, this.currentIdentity);
                 }
                 if (!this.browser || pageError) {
                     if (pageError && pageErrorCount > this.maxRetryPageCrash) {
-                        logger.fail('_browser_page_crashed', pageError);
+                        logger.fail('plugin_browser_page_crashed', pageError);
                     }
                     await makePage();
                 }
@@ -430,7 +436,7 @@ class Browser {
                         pageError = pageError || error;
                         await handlePageError(pageError);
                         if (pageErrorCount > this.maxRetryPageCrash || loadingPageState) {
-                            logger.fail('_browser_page_crashed', pageError);
+                            logger.fail('plugin_browser_page_crashed', pageError);
                         } else {
                             immediateRetry = true;
                             break;
@@ -516,13 +522,13 @@ class Browser {
                     }
 
                     if (proxyInvalid && this.proxies) {
-                        this.proxies.bound.deprecate(this.currentProxy);
+                        this.proxies.instance.deprecate(logger, this.currentProxy);
                         this.currentProxy = undefined;
-                        if (this.switchIdentityOnInvalidProxy) this._clearCurrentIdentity();
+                        if (this.switchIdentityOnInvalidProxy) this._clearCurrentIdentity(logger);
                     }
                     if (identityInvalid && this.identities) {
-                        this.identities.bound.deprecate(this.currentIdentity);
-                        this._clearCurrentIdentity();
+                        this.identities.instance.deprecate(logger, this.currentIdentity);
+                        this._clearCurrentIdentity(logger);
                         if (this.switchProxyOnInvalidIdentity) this.currentProxy = undefined;
                     }
 
@@ -531,14 +537,14 @@ class Browser {
                         await makePage();
                         continue;
                     } else {
-                        logger.fail('_browser_page_failed', ...logMessages);
+                        logger.fail('plugin_browser_page_failed', ...logMessages);
                     }
                 }
                 if (lastError) {
-                    logger.fail('_browser_page_failed', lastError);
+                    logger.fail('plugin_browser_page_failed', lastError);
                 }
                 if (this.currentIdentity && this.identities) {
-                    this.identities.bound.renew(this.currentIdentity);
+                    this.currentIdentity = this.identities.instance.renew(logger, this.currentIdentity);
                 }
                 if (!loadingPageState) {
                     const operation = invokes.filter(i => i.method !== 'waitForResponse');
@@ -666,7 +672,7 @@ module.exports = {
         },
         {pluginLoader}
     ) {
-        if (createIdentityFn) {
+        if (identitiesOptions && createIdentityFn) {
             identitiesOptions = {
                 async createIdentityFn() {
                     const _id = uuid4();
@@ -677,7 +683,7 @@ module.exports = {
                         createIdentityFn, createIdentityError, loadIdentityFn, validateIdentityFn, validateProxyFn,
                         loadPageStateFn, processReturnedFn,
                         defaultIdentityId: _id, lockIdentityUntilLoaded, lockIdentityInUse,
-                    });
+                    }, this);
                     try {
                         const {id, ...data} = await createIdentityFn.call(this, bound);
                         return {id: id || _id, data};
