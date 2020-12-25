@@ -685,8 +685,8 @@ module.exports = {
                         defaultIdentityId: _id, lockIdentityUntilLoaded, lockIdentityInUse,
                     }, this);
                     try {
-                        const {id, ...data} = await createIdentityFn.call(this, bound);
-                        return {id: id || _id, data};
+                        const identity = await createIdentityFn.call(this, bound);
+                        return {id: _id, ...identity};
                     } finally {
                         await destroy();
                     }
