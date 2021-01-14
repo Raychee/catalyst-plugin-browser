@@ -19,7 +19,7 @@ class Browser {
             'evaluateClick', 'scrollToBottom', 'type',
         ],
         maxRetryIdentities = 10, maxRetryPageCrash = 1,
-        switchIdentityOnInvalidProxy = false, switchProxyOnInvalidIdentity = true,
+        switchIdentityOnInvalidProxy = false, 
         createIdentityFn, createIdentityError, loadIdentityFn, validateIdentityFn, validateProxyFn,
         loadPageStateFn, processReturnedFn,
         defaultIdentityId, lockIdentityUntilLoaded = false, lockIdentityInUse = false,
@@ -36,7 +36,6 @@ class Browser {
         this.maxRetryIdentities = maxRetryIdentities;
         this.maxRetryPageCrash = maxRetryPageCrash;
         this.switchIdentityOnInvalidProxy = switchIdentityOnInvalidProxy;
-        this.switchProxyOnInvalidIdentity = switchProxyOnInvalidIdentity;
         this.createIdentityFn = createIdentityFn;
         this.createIdentityError = createIdentityError;
         if (loadIdentityFn) this.loadIdentityFn = loadIdentityFn;
@@ -118,6 +117,15 @@ class Browser {
                 });
             } else {
                 logger.crash('plugin_browser_bad_launch_options', 'Browser cannot launch without either browserWSEndpoint or executablePath specified');
+            }
+        }
+    }
+    
+    _deprecateCurrentIdentity(logger) {
+        if (this.currentIdentity && this.identities) {
+            const {id, removed} = this.identities.instance.deprecate(logger, this.currentIdentity) || {};
+            if (removed && this.proxies && id) {
+                this.proxies.instance.clearIdentity(logger, id);
             }
         }
     }
@@ -527,9 +535,9 @@ class Browser {
                         if (this.switchIdentityOnInvalidProxy) this._clearCurrentIdentity(logger);
                     }
                     if (identityInvalid && this.identities) {
-                        this.identities.instance.deprecate(logger, this.currentIdentity);
+                        this._deprecateCurrentIdentity(logger)
                         this._clearCurrentIdentity(logger);
-                        if (this.switchProxyOnInvalidIdentity) this.currentProxy = undefined;
+                        this.currentProxy = undefined;
                     }
 
                     await this._close();
@@ -664,7 +672,7 @@ module.exports = {
                 'evaluateClick', 'scrollToBottom', 'type',
             ],
             maxRetryIdentities = 10, maxRetryPageCrash = 1,
-            switchIdentityOnInvalidProxy = false, switchProxyOnInvalidIdentity = true,
+            switchIdentityOnInvalidProxy = false, 
             createIdentityFn, createIdentityError, loadIdentityFn, validateIdentityFn, validateProxyFn,
             loadPageStateFn, processReturnedFn,
             defaultIdentityId, lockIdentityUntilLoaded = false, lockIdentityInUse = false,
@@ -679,7 +687,7 @@ module.exports = {
                     const {bound, destroy} = await pluginLoader.get({
                         type: 'browser',
                         connectOpts, proxies: proxiesOptions, hookedPageMethods, maxRetryIdentities,
-                        switchIdentityOnInvalidProxy, switchProxyOnInvalidIdentity,
+                        switchIdentityOnInvalidProxy, 
                         createIdentityFn, createIdentityError, loadIdentityFn, validateIdentityFn, validateProxyFn,
                         loadPageStateFn, processReturnedFn,
                         defaultIdentityId: _id, lockIdentityUntilLoaded, lockIdentityInUse,
@@ -700,7 +708,7 @@ module.exports = {
         return new Browser(this, connectOpts, {
             identities, proxies, hookedPageMethods,
             maxRetryIdentities, maxRetryPageCrash,
-            switchIdentityOnInvalidProxy, switchProxyOnInvalidIdentity,
+            switchIdentityOnInvalidProxy, 
             createIdentityFn, createIdentityError, loadIdentityFn, validateIdentityFn, validateProxyFn,
             loadPageStateFn, processReturnedFn,
             defaultIdentityId, lockIdentityUntilLoaded, lockIdentityInUse,
